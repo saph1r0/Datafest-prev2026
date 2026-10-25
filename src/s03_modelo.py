@@ -52,6 +52,14 @@ FRASES = {
 def preparar(df: pd.DataFrame, categorias: dict | None = None):
     """Tipos limpios: booleanos a 0/1, montos en log, categóricas como 'category'."""
     X = df[[c for c in df.columns if c not in NO_FEATURES]].copy()
+    if categorias is None:
+        # Columnas 100% vacías (una base o columna que no vino) no aportan: se descartan.
+        X = X.dropna(axis=1, how="all")
+    else:
+        X = X.reindex(columns=categorias["__columnas__"])  # mismas columnas que en entrenamiento
+    for c in X.columns:
+        if X[c].dtype == object and X[c].isna().all():
+            X[c] = X[c].astype(float)
     for c in X.columns:
         if X[c].dtype == bool or str(X[c].dtype) == "boolean":
             X[c] = X[c].astype(float)
@@ -62,6 +70,7 @@ def preparar(df: pd.DataFrame, categorias: dict | None = None):
             if pd.api.types.is_string_dtype(X[c]) or isinstance(X[c].dtype, pd.CategoricalDtype)]
     if categorias is None:
         categorias = {c: sorted(X[c].dropna().astype(str).unique()) for c in cats}
+        categorias["__columnas__"] = list(X.columns)
     for c in cats:
         X[c] = pd.Categorical(X[c].astype(str), categories=categorias[c])
     return X, cats, categorias

@@ -34,9 +34,11 @@ Abran `outputs/simulador.html` con doble clic.
 
 ## Resultados con los datos de práctica (escala 1.0)
 
-- Gini en validación out-of-time: logística 0.557, LightGBM 0.556. El pipeline elige el ganador solo.
+- Gini en validación out-of-time: logística 0.557, LightGBM 0.561 (prácticamente empate; el pipeline elige el ganador solo).
 - R² del monto (escala log): 0.84.
-- Con 1,500 contactos (9% del universo) la lista capta 74% del monto real en validación; los leads actuales, 27%; el azar, 13%.
+- Contactando al 10% de la base, la lista por valor esperado capta 75% del monto real en validación; los leads actuales, 27%; el azar, 6%.
+- Ordenar por probabilidad capta más conversiones (40%) pero menos monto (54%): por eso se ordena por valor esperado.
+- Sin las bases de plazo, perfil y canal, el Gini cae a 0.33: así se mide cuánto aporta cada base.
 - Fuga de datos de demostración: si se quita `flag_factoring_actual` de las prohibidas, el Gini salta a 1.000 y la alarma la detecta.
 - Benchmark: DuckDB + Parquet 0.47 s y 175 MB vs pandas + CSV 2.33 s y 579 MB.
 
