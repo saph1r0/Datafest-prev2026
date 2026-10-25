@@ -1,0 +1,9 @@
+data/raw/*
+data/parquet/*
+outputs/*
+!data/raw/.gitkeep
+!data/parquet/.gitkeep
+!outputs/.gitkeep
+__pycache__/
+.venv/
+*.pyc

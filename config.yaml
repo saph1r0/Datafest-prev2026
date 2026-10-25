@@ -1,0 +1,73 @@
+# =====================================================================
+# config.yaml — EL ÚNICO ARCHIVO QUE SE CAMBIA EL DÍA DEL EVENTO
+# =====================================================================
+# Idea: el código trabaja con NOMBRES LÓGICOS (proveedor, pagador, monto...).
+# Aquí se dice cómo se llaman esas columnas en los datos REALES.
+# Si el BCP entrega "RUC_EMISOR" en vez de "id_proveedor", solo cambian una línea.
+# Una columna opcional que no exista se pone en null: el pipeline la salta.
+
+rutas:
+  crudos: data/raw          # donde copian lo que llega por USB
+  parquet: data/parquet     # capa normalizada (staging)
+  salidas: outputs
+
+# nombre lógico de la tabla -> archivo real (.csv o .parquet)
+tablas:
+  empresas: empresas.csv
+  transacciones: transacciones.csv
+  factoring: factoring.csv
+  perfil: perfil_mensual.csv     # null si no existe esta base
+
+# nombre lógico -> nombre real de la columna (null = no existe)
+columnas:
+  empresas:
+    id: id_empresa
+    rubro: rubro
+    segmento: segmento
+    region: region
+    es_cliente: es_cliente
+    tiene_lead: tiene_lead
+    flag_factoring_actual: flag_factoring_actual
+  transacciones:
+    fecha: fecha
+    pagador: id_pagador
+    proveedor: id_proveedor
+    monto: monto
+    plazo: plazo_dias          # opcional
+    tipo: tipo                 # opcional
+  factoring:
+    fecha: fecha_operacion
+    proveedor: id_proveedor    # quien adelanta la factura (OJO: confirmar aceptante/girador)
+    pagador: id_pagador
+    monto: monto_desembolsado
+    canal: canal               # opcional: BCP vs otro banco
+  perfil:
+    id: id_empresa
+    mes: mes
+    saldo: saldo_promedio
+    productos: n_productos
+    credito: tiene_credito
+
+# valores de negocio que aparecen dentro de las columnas
+valores:
+  canal_banco: BCP            # valor de 'canal' que significa "operó con nosotros"
+  segmentos_grandes: [GRANDE]
+  rubros_estado: [SECTOR_PUBLICO]
+  tipo_factura: FACTURA       # solo estas filas cuentan como ventas a crédito
+
+tiempo:
+  cortes_entrenamiento: ["2025-09-30", "2025-12-31", "2026-03-31"]
+  corte_validacion: "2026-06-30"      # out-of-time: después de todos los de entrenamiento
+  corte_scoring: "2026-09-30"         # "hoy": a quiénes llamamos el próximo trimestre
+  ventana_objetivo_meses: 3           # ¿convierte en los próximos N meses?
+
+negocio:
+  capacidad_contactos: 1500  # cuántas empresas puede contactar la fuerza comercial (lo darán el día 13)
+  margen: 0.02               # ingreso por sol desembolsado (S/ 200 de S/ 10,000)
+
+modelo:
+  semilla: 42
+  # columnas que NUNCA entran al modelo (fuga de datos o prohibidas por el negocio)
+  columnas_prohibidas: [flag_factoring_actual]
+  # una variable que sola da Gini mayor a esto en entrenamiento es sospechosa de fuga
+  alerta_fuga_gini: 0.80
