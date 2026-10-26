@@ -15,10 +15,9 @@ sin traerlas a pandas. A Python solo llega la tabla final (una fila por empresa)
 Población elegible en cada corte: empresas que NO son grandes, que vendieron a crédito
 en los últimos 12 meses y que todavía NO hacen factoring con el banco.
 """
-import duckdb
 import pandas as pd
 
-from utils import cargar_config, cronometro, parquet
+from utils import cargar_config, conectar, cronometro, parquet
 
 
 def disponible(con, cfg, tabla, col=None) -> bool:
@@ -169,9 +168,40 @@ def construir_corte(con, cfg, corte: str, con_objetivo: bool) -> pd.DataFrame:
     return con.execute(sql).df()
 
 
+def tabla_plana(con, cfg):
+    """Modo tabla_plana: train y test ya vienen armados. Solo se define la partición train/valid.
+    - Si hay columna de tiempo: el ÚLTIMO periodo es validación (out-of-time, como en la vida real).
+    - Si no: un % al azar, fijo por id (hash), para que todos en el equipo tengan la misma partición.
+    Todo en SQL: no se cargan millones de filas en pandas."""
+    tp = cfg["tabla_plana"]
+    tr, te = parquet(cfg, "train"), parquet(cfg, "test")
+    cols = {r[0] for r in con.execute(f"DESCRIBE SELECT * FROM '{tr}'").fetchall()}
+    if "corte" in cols:
+        ultimo = con.execute(f"SELECT MAX(corte) FROM '{tr}'").fetchone()[0]
+        regla = f"CASE WHEN corte = '{ultimo}' THEN 'valid' ELSE 'train' END"
+        print(f"    validación out-of-time: periodo {ultimo}")
+    else:
+        pct = int(100 * tp.get("pct_validacion", 0.3))
+        regla = f"CASE WHEN hash(CAST(id AS VARCHAR)) % 100 < {pct} THEN 'valid' ELSE 'train' END"
+        print(f"    validación: {pct}% al azar (no hay columna de tiempo)")
+    extra = "" if "monto_objetivo" in cols else ", NULL::DOUBLE AS monto_objetivo"
+    sal = cfg["rutas"]["salidas"]
+    con.execute(f"COPY (SELECT *, {regla} AS particion {extra} FROM '{tr}') "
+                f"TO '{sal / 'tabla_modelo.parquet'}' (FORMAT parquet, COMPRESSION zstd)")
+    con.execute(f"COPY (SELECT * FROM '{te}') TO '{sal / 'tabla_scoring.parquet'}' (FORMAT parquet, COMPRESSION zstd)")
+    n, pos, nv = con.execute(f"SELECT COUNT(*), SUM(y), SUM(CASE WHEN particion='valid' THEN 1 ELSE 0 END) "
+                             f"FROM '{sal / 'tabla_modelo.parquet'}'").fetchone()
+    ns = con.execute(f"SELECT COUNT(*) FROM '{sal / 'tabla_scoring.parquet'}'").fetchone()[0]
+    print(f"    {n:,} filas para modelar ({int(pos):,} positivos, {nv:,} en validación) | {ns:,} para puntuar")
+
+
 def main():
     cfg = cargar_config()
-    con = duckdb.connect()
+    con = conectar(cfg)
+    if cfg.get("modo") == "tabla_plana":
+        with cronometro("tabla plana: partición train/valid"):
+            tabla_plana(con, cfg)
+        return
     t = cfg["tiempo"]
     tablas = []
     for corte in t["cortes_entrenamiento"] + [t["corte_validacion"]]:
@@ -180,6 +210,7 @@ def main():
         print(f"    {len(df):,} empresas | tasa de conversión {df['y'].mean():.2%}")
         tablas.append(df)
     modelo = pd.concat(tablas, ignore_index=True)
+    modelo["particion"] = (modelo["corte"] == t["corte_validacion"]).map({True: "valid", False: "train"})
     modelo.to_parquet(cfg["rutas"]["salidas"] / "tabla_modelo.parquet", index=False)
 
     with cronometro(f"features scoring {t['corte_scoring']}"):

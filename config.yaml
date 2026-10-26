@@ -1,24 +1,36 @@
 # =====================================================================
 # config.yaml — EL ÚNICO ARCHIVO QUE SE CAMBIA EL DÍA DEL EVENTO
 # =====================================================================
-# Idea: el código trabaja con NOMBRES LÓGICOS (proveedor, pagador, monto...).
+# El código trabaja con NOMBRES LÓGICOS (proveedor, pagador, monto...).
 # Aquí se dice cómo se llaman esas columnas en los datos REALES.
-# Si el BCP entrega "RUC_EMISOR" en vez de "id_proveedor", solo cambian una línea.
 # Una columna opcional que no exista se pone en null: el pipeline la salta.
+
+# ---------------------------------------------------------------------
+# MODO DE TRABAJO
+#   construir   -> llegan bases "crudas" (empresas, transacciones, operaciones...) y nosotros
+#                  armamos la tabla por empresa y la variable objetivo (caso factoring tal como se anunció)
+#   tabla_plana -> llega un train.csv YA ARMADO con la etiqueta y un test.csv sin etiqueta
+#                  (así fue el caso de 2025: una tabla con ~200 variables y millones de filas)
+# ---------------------------------------------------------------------
+modo: construir
 
 rutas:
   crudos: data/raw          # donde copian lo que llega por USB
   parquet: data/parquet     # capa normalizada (staging)
   salidas: outputs
 
-# nombre lógico de la tabla -> archivo real (.csv o .parquet)
+# Recursos de la laptop. DuckDB usa como máximo esta memoria y el resto lo pasa a disco.
+recursos:
+  memoria_duckdb: "4GB"     # la mitad de la RAM de la laptop más débil del equipo
+  hilos: null               # null = todos los núcleos
+
+# ============================ MODO construir ============================
 tablas:
   empresas: empresas.csv
   transacciones: transacciones.csv
   factoring: factoring.csv
   perfil: perfil_mensual.csv     # null si no existe esta base
 
-# nombre lógico -> nombre real de la columna (null = no existe)
 columnas:
   empresas:
     id: id_empresa
@@ -48,12 +60,16 @@ columnas:
     productos: n_productos
     credito: tiene_credito
 
-# valores de negocio que aparecen dentro de las columnas
+# Si una tabla trae MUCHAS columnas extra (ej. 200 variables), no hace falta mapearlas una por una:
+# con true, las columnas no mapeadas pasan con su nombre original y entran al modelo.
+columnas_extra:
+  empresas: true
+
 valores:
-  canal_banco: BCP            # valor de 'canal' que significa "operó con nosotros"
+  canal_banco: BCP
   segmentos_grandes: [GRANDE]
   rubros_estado: [SECTOR_PUBLICO]
-  tipo_factura: FACTURA       # solo estas filas cuentan como ventas a crédito
+  tipo_factura: FACTURA
 
 tiempo:
   cortes_entrenamiento: ["2025-09-30", "2025-12-31", "2026-03-31"]
@@ -61,13 +77,61 @@ tiempo:
   corte_scoring: "2026-09-30"         # "hoy": a quiénes llamamos el próximo trimestre
   ventana_objetivo_meses: 3           # ¿convierte en los próximos N meses?
 
+# ============================ MODO tabla_plana ============================
+tabla_plana:
+  train: train.csv
+  test: test.csv
+  id: id
+  objetivo: target            # 0/1
+  monto: monto                # null si no hay que estimar monto
+  tiempo: null                # columna de periodo: el último periodo se usa para validar (out-of-time)
+  pct_validacion: 0.3         # si tiempo es null: % al azar que se separa para validar
+
+# ============================ COMUNES ============================
+# Columnas para describir la lista y buscar hallazgos (se usan las que existan)
+perfil_columnas: [rubro, region, segmento]
+columna_lead: tiene_lead      # null si no existe la idea de "lead" en los datos
+
 negocio:
-  capacidad_contactos: 1500  # cuántas empresas puede contactar la fuerza comercial (lo darán el día 13)
-  margen: 0.02               # ingreso por sol desembolsado (S/ 200 de S/ 10,000)
+  capacidad_contactos: 1500   # cuántas empresas puede contactar la fuerza comercial
+  margen: 0.02                # ingreso por sol desembolsado (S/ 200 de S/ 10,000)
 
 modelo:
   semilla: 42
-  # columnas que NUNCA entran al modelo (fuga de datos o prohibidas por el negocio)
-  columnas_prohibidas: [flag_factoring_actual]
-  # una variable que sola da Gini mayor a esto en entrenamiento es sospechosa de fuga
-  alerta_fuga_gini: 0.80
+  columnas_prohibidas: [flag_factoring_actual]   # fuga de datos o prohibidas por el negocio
+  forzar_categoricas: []      # números que en realidad son categorías (ej. nivel_socioeconomico 1..5)
+  alerta_fuga_gini: 0.80      # una variable sola con Gini mayor a esto = sospechosa
+  max_brecha_gini: 0.05       # Gini train - Gini valid tolerado (consejo del finalista: máximo 5 puntos)
+  # --- costo computacional ---
+  muestreo_negativos: 1.0     # 1.0 = todos; 0.2 = guarda 20% de los "no" para entrenar (los "sí" siempre todos)
+  max_filas_validacion: 1000000
+  # --- selección de variables (cuando llegan cientos) ---
+  max_nulos: 0.98             # se descartan columnas con más de 98% vacío
+  max_variables: 60           # se quedan las 60 más importantes según un LightGBM rápido
+  # --- ajuste fino ---
+  optuna_trials: 25           # 0 = apagado. Búsqueda bayesiana (TPE) de hiperparámetros
+  optuna_minutos: 3           # tope de tiempo de la búsqueda
+  peso_clases: false          # true = LightGBM pondera la clase minoritaria (las probabilidades se corrigen)
+  segmentar_por: null         # una columna (ej. producto) -> un modelo por cada valor
+
+# ============================ OPTIMIZACIÓN ============================
+# El día del evento suelen agregar restricciones (en 2025 lo hicieron en la explicación de las 4 p. m.).
+# Objetivo: maximizar el ingreso esperado eligiendo a quién contactar.
+optimizacion:
+  presupuesto_monto: null     # tope del monto total esperado a desembolsar (S/), null = sin tope
+  una_opcion_por_id: true     # si un id aparece varias veces (ej. producto x canal) se elige solo una fila
+  restricciones: []
+  # Ejemplos (descomenten y ajusten):
+  # - {columna: region,   valor: LIMA, medida: contactos, sentido: max, limite: 600}
+  # - {columna: segmento, valor: MIPE, medida: monto,     sentido: max, limite: 5000000}
+  # - {columna: rubro,    valor: AGRO, medida: contactos, sentido: min, limite: 100}
+
+entrega:
+  archivo: entrega.csv
+  # nombre de columna en el archivo final -> columna interna
+  columnas:
+    id: id
+    probabilidad: p
+    monto_estimado: monto_estimado
+    valor_esperado: valor_esperado
+    contactar: seleccionada

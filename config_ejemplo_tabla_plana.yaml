@@ -1,0 +1,105 @@
+# Ejemplo de configuración para el modo tabla_plana con los datos de práctica:
+#   python src/s00b_generar_plana.py --filas 200000 --salida data/raw
+#   copiar este archivo sobre config.yaml y correr: python run_all.py
+modo: tabla_plana
+rutas:
+  crudos: data/raw
+  parquet: data/parquet
+  salidas: outputs
+recursos:
+  memoria_duckdb: 4GB
+  hilos: null
+tablas:
+  empresas: empresas.csv
+  transacciones: transacciones.csv
+  factoring: factoring.csv
+  perfil: perfil_mensual.csv
+columnas:
+  empresas:
+    id: id_empresa
+    rubro: rubro
+    segmento: segmento
+    region: region
+    es_cliente: es_cliente
+    tiene_lead: tiene_lead
+    flag_factoring_actual: flag_factoring_actual
+  transacciones:
+    fecha: fecha
+    pagador: id_pagador
+    proveedor: id_proveedor
+    monto: monto
+    plazo: plazo_dias
+    tipo: tipo
+  factoring:
+    fecha: fecha_operacion
+    proveedor: id_proveedor
+    pagador: id_pagador
+    monto: monto_desembolsado
+    canal: canal
+  perfil:
+    id: id_empresa
+    mes: mes
+    saldo: saldo_promedio
+    productos: n_productos
+    credito: tiene_credito
+columnas_extra:
+  empresas: true
+valores:
+  canal_banco: BCP
+  segmentos_grandes:
+  - GRANDE
+  rubros_estado:
+  - SECTOR_PUBLICO
+  tipo_factura: FACTURA
+tiempo:
+  cortes_entrenamiento:
+  - '2025-09-30'
+  - '2025-12-31'
+  - '2026-03-31'
+  corte_validacion: '2026-06-30'
+  corte_scoring: '2026-09-30'
+  ventana_objetivo_meses: 3
+tabla_plana:
+  train: train.csv
+  test: test.csv
+  id: id
+  objetivo: target
+  monto: monto
+  tiempo: periodo
+  pct_validacion: 0.3
+perfil_columnas:
+- region
+- canal
+- producto
+columna_lead: null
+negocio:
+  capacidad_contactos: 3000
+  margen: 0.02
+modelo:
+  semilla: 42
+  columnas_prohibidas: []
+  forzar_categoricas:
+  - nivel_socioeconomico
+  - sexo
+  alerta_fuga_gini: 0.8
+  max_brecha_gini: 0.05
+  muestreo_negativos: 1.0
+  max_filas_validacion: 1000000
+  max_nulos: 0.98
+  max_variables: 60
+  optuna_trials: 25
+  optuna_minutos: 3
+  peso_clases: false
+  segmentar_por: null
+optimizacion:
+  presupuesto_monto: null
+  una_opcion_por_id: true
+  restricciones: []
+entrega:
+  archivo: entrega.csv
+  columnas:
+    id: id
+    probabilidad: p
+    monto_estimado: monto_estimado
+    valor_esperado: valor_esperado
+    contactar: seleccionada

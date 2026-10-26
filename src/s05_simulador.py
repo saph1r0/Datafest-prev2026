@@ -43,9 +43,9 @@ th{color:var(--soft);font-weight:600}td.n{text-align:right;font-variant-numeric:
 <p class="sub" id="frase"></p>
 <section class="ctrl">
   <div><label for="cap">Capacidad comercial: <span id="capv"></span> contactos</label><input id="cap" type="range" min="10" step="10"></div>
-  <div><label for="reg">Región</label><select id="reg"></select></div>
+  <div><label for="reg" id="lblB">Grupo</label><select id="reg"></select></div>
   <div><label for="ord">Orden de la lista</label><select id="ord">
-    <option value="ve">Modelo: valor esperado</option><option value="p">Modelo: probabilidad</option><option value="lead">Leads actuales</option></select></div>
+    <option value="ve">Modelo: valor esperado</option><option value="p">Modelo: probabilidad</option><option value="lead" id="optLead">Leads actuales</option></select></div>
 </section>
 <section class="kpis">
   <div class="card kpi"><div class="c">Conversiones esperadas</div><div class="v" id="k1"></div><div class="c" id="k1c"></div></div>
@@ -55,16 +55,20 @@ th{color:var(--soft);font-weight:600}td.n{text-align:right;font-variant-numeric:
 </section>
 <section class="grid">
   <div class="card"><h2>Ingreso esperado acumulado según a quién llamas primero</h2><p class="sub" style="margin:-6px 0 8px;font-size:12px">Estimado por el modelo. La prueba con resultados reales (validación out-of-time) está en resumen_negocio.md.</p><svg id="g" viewBox="0 0 600 300" width="100%" role="img" aria-label="Curva de ingreso acumulado"></svg>
-  <div class="leg"><span><b style="background:var(--acc)"></b>Modelo: valor esperado</span><span><b style="background:var(--acc2)"></b>Leads actuales</span><span><b style="background:var(--soft)"></b>Azar</span></div></div>
-  <div class="card"><h2>Rubros en la lista seleccionada</h2><div id="rub"></div></div>
+  <div class="leg"><span><b style="background:var(--acc)"></b>Modelo: valor esperado</span><span class="legLead"><b style="background:var(--acc2)"></b>Leads actuales</span><span><b style="background:var(--soft)"></b>Azar</span></div></div>
+  <div class="card"><h2 id="lblA2">Grupos en la lista seleccionada</h2><div id="rub"></div></div>
 </section>
-<section class="card"><h2>Primeras 15 empresas y por qué</h2><table><thead><tr><th>#</th><th>Empresa</th><th>Rubro</th><th>Región</th><th class="n">Prob.</th><th class="n">Monto est.</th><th>Razones</th></tr></thead><tbody id="tb"></tbody></table></section>
+<section class="card"><h2>Primeras 15 empresas y por qué</h2><table><thead><tr><th>#</th><th>ID</th><th id="thA">A</th><th id="thB">B</th><th class="n">Prob.</th><th class="n">Monto est.</th><th>Razones</th></tr></thead><tbody id="tb"></tbody></table></section>
 </main>
 <script>
 const D = __DATOS__;
-const fmt = n => n >= 1e6 ? "S/ " + (n/1e6).toFixed(2) + " M" : n >= 1e3 ? "S/ " + (n/1e3).toFixed(0) + " mil" : "S/ " + n.toFixed(0);
+const mon = D.hayMonto ? "S/ " : "";
+const fmt = n => n >= 1e6 ? mon + (n/1e6).toFixed(2) + " M" : n >= 1e3 ? mon + (n/1e3).toFixed(0) + " mil" : mon + n.toFixed(D.hayMonto ? 0 : 1);
 const $ = id => document.getElementById(id);
 const regiones = ["Todas", ...D.regiones];
+$("lblB").textContent = D.nombreB; $("lblA2").textContent = D.nombreA + " en la lista seleccionada";
+$("thA").textContent = D.nombreA; $("thB").textContent = D.nombreB;
+if (!D.hayLead) { $("optLead").remove(); document.querySelectorAll(".legLead").forEach(e => e.remove()); }
 $("reg").innerHTML = regiones.map(r => `<option>${r}</option>`).join("");
 $("frase").textContent = D.frase;
 const filas = D.filas.map(f => ({id:f[0], rubro:D.rubros[f[1]], region:D.regiones[f[2]], lead:f[3], p:f[4], m:f[5], raz:f[6], azar:f[7]}));
@@ -89,10 +93,11 @@ function dibujar(){
   const tot = suma(u, "ing");
   $("k1").textContent = suma(sel, "p").toFixed(1); $("k2").textContent = fmt(suma(sel, "me")); $("k3").textContent = fmt(suma(sel, "ing"));
   $("k4").textContent = (100 * suma(sel, "ing") / tot).toFixed(0) + "%";
-  const comp = (a, b) => b > 0 ? `<span class="up">${(a / b).toFixed(1)}x</span> vs leads actuales` : "";
-  $("k1c").innerHTML = o === "lead" ? "práctica actual" : comp(suma(sel, "p"), suma(leads, "p"));
-  $("k2c").innerHTML = o === "lead" ? "práctica actual" : comp(suma(sel, "me"), suma(leads, "me"));
-  $("k3c").innerHTML = o === "lead" ? "práctica actual" : comp(suma(sel, "ing"), suma(leads, "ing"));
+  const ref = D.hayLead ? leads : ordenar(u, "azar").slice(0, n), nomRef = D.hayLead ? "leads actuales" : "llamar al azar";
+  const comp = (a, b) => b > 0 ? `<span class="up">${(a / b).toFixed(1)}x</span> vs ${nomRef}` : "";
+  $("k1c").innerHTML = o === "lead" ? "práctica actual" : comp(suma(sel, "p"), suma(ref, "p"));
+  $("k2c").innerHTML = o === "lead" ? "práctica actual" : comp(suma(sel, "me"), suma(ref, "me"));
+  $("k3c").innerHTML = o === "lead" ? "práctica actual" : comp(suma(sel, "ing"), suma(ref, "ing"));
   // curva
   const W = 600, H = 300, L = 56, B = 34, R = 12, T = 12, N = u.length;
   const X = i => L + (W - L - R) * i / N, Y = v => H - B - (H - B - T) * v / tot;
@@ -100,7 +105,7 @@ function dibujar(){
   let s = "";
   for (let k = 0; k <= 4; k++){ const v = tot * k / 4; s += `<line x1="${L}" x2="${W - R}" y1="${Y(v)}" y2="${Y(v)}" stroke="var(--line)"/><text x="${L - 6}" y="${Y(v) + 4}" text-anchor="end" font-size="11" fill="var(--soft)">${k * 25}%</text>`; }
   s += `<text x="${(L + W - R) / 2}" y="${H - 6}" text-anchor="middle" font-size="11" fill="var(--soft)">empresas contactadas</text>`;
-  s += linea(curva(ordenar(u, "azar")), "var(--soft)", 1.5) + linea(curva(ordenar(u, "lead")), "var(--acc2)", 2) + linea(curva(ordenar(u, "ve")), "var(--acc)", 2.5);
+  s += linea(curva(ordenar(u, "azar")), "var(--soft)", 1.5) + (D.hayLead ? linea(curva(ordenar(u, "lead")), "var(--acc2)", 2) : "") + linea(curva(ordenar(u, "ve")), "var(--acc)", 2.5);
   s += `<line x1="${X(n)}" x2="${X(n)}" y1="${T}" y2="${H - B}" stroke="var(--ink)" stroke-dasharray="4 4"/><text x="${X(n) + 6}" y="${T + 12}" font-size="11" fill="var(--ink)">capacidad</text>`;
   $("g").innerHTML = s;
   // rubros
@@ -119,16 +124,26 @@ dibujar();
 def main():
     cfg = cargar_config()
     sal = cfg["rutas"]["salidas"]
-    lista = pd.read_csv(sal / "lista_priorizada.csv")
+    lista = pd.read_csv(sal / "lista_priorizada.csv").drop_duplicates("id")
     resumen = json.loads((sal / "resumen_negocio.json").read_text(encoding="utf-8"))
-    rubros = sorted(lista.rubro.astype(str).unique())
-    regiones = sorted(lista.region.astype(str).unique())
+    pc = [c for c in resumen.get("perfil_columnas") or [] if c in lista.columns]
+    ga = pc[0] if pc else None
+    gb = pc[1] if len(pc) > 1 else ga
+    lead = resumen.get("columna_lead")
+    va = lista[ga].astype(str) if ga else pd.Series("TODOS", index=lista.index)
+    vb = lista[gb].astype(str) if gb else pd.Series("TODOS", index=lista.index)
+    rubros, regiones = sorted(va.unique()), sorted(vb.unique())
+    ia, ib = {v: i for i, v in enumerate(rubros)}, {v: i for i, v in enumerate(regiones)}
+    leads = lista[lead].astype(bool).astype(int) if lead else pd.Series(0, index=lista.index)
     azar = pd.Series(range(len(lista))).sample(frac=1, random_state=3).to_numpy()
-    filas = [[r.id, rubros.index(str(r.rubro)), regiones.index(str(r.region)), int(bool(r.tiene_lead)),
-              round(float(r.p), 5), round(float(r.monto_estimado), 0), str(r.razones) if pd.notna(r.razones) else "",
-              int(a)]
-             for r, a in zip(lista.itertuples(), azar)]
-    datos = {"filas": filas, "rubros": rubros, "regiones": regiones, "margen": cfg["negocio"]["margen"],
+    filas = [[str(i), ia[a], ib[b], int(l), round(float(p), 5), round(float(m), 0),
+              str(r) if pd.notna(r) else "", int(z)]
+             for i, a, b, l, p, m, r, z in zip(lista.id, va, vb, leads, lista.p, lista.monto_estimado,
+                                               lista.get("razones", pd.Series("", index=lista.index)), azar)]
+    hay_monto = bool(resumen.get("hay_monto", True))
+    datos = {"filas": filas, "rubros": rubros, "regiones": regiones,
+             "margen": cfg["negocio"]["margen"] if hay_monto else 1.0, "hayMonto": hay_monto,
+             "hayLead": bool(lead), "nombreA": (ga or "grupo").capitalize(), "nombreB": (gb or "grupo").capitalize(),
              "capacidad": cfg["negocio"]["capacidad_contactos"], "frase": resumen["frase"]}
     html = PLANTILLA.replace("__DATOS__", json.dumps(datos, ensure_ascii=False))
     (sal / "simulador.html").write_text(html, encoding="utf-8")

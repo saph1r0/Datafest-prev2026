@@ -1,7 +1,8 @@
-# Base de solución — Caso Factoring
+# Base de solución — DataFest BCP 2026
 
-Pipeline de punta a punta para priorizar a qué empresas contactar con una fuerza comercial limitada.
-Corre en una laptop, sin nube, en menos de un minuto con ~2 millones de transacciones.
+Pipeline de punta a punta para decidir **a quién contactar** con una fuerza comercial limitada:
+probabilidad × monto = valor esperado, selección óptima con restricciones, hallazgos para el PPT y archivo
+de entrega validado. Corre en una laptop, sin nube.
 
 ## Arranque rápido
 
@@ -9,47 +10,50 @@ Corre en una laptop, sin nube, en menos de un minuto con ~2 millones de transacc
 python -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-python run_all.py --generar 1.0  # genera datos de práctica y corre todo
+python run_all.py --generar 1.0  # datos de práctica (4 bases) y todo el pipeline
 ```
 
-Abran `outputs/simulador.html` con doble clic.
+## Dos modos (se elige en config.yaml)
+
+| Modo | Cuándo | Datos de práctica |
+|---|---|---|
+| `construir` | Llegan bases crudas (empresas, transacciones, operaciones, perfil) y hay que armar la tabla y el objetivo. Así se anunció el caso factoring | `python run_all.py --generar 1.0` |
+| `tabla_plana` | Llega un train con la etiqueta y un test para llenar. Así fue 2025: millones de filas, ~200 variables | `python src/s00b_generar_plana.py --salida data/raw` + `config_ejemplo_tabla_plana.yaml` |
 
 ## El día del evento
 
-1. Copien los archivos del USB a `data/raw/`.
-2. Editen **solo** `config.yaml`: nombres de archivos, nombres de columnas, valores (canal del banco, segmentos), fechas de corte y capacidad comercial.
-3. `python run_all.py` y revisen `outputs/perfil_datos.md` antes que nada.
+1. Copiar los archivos del USB a `data/raw/`.
+2. Editar **solo** `config.yaml`: modo, nombres de archivos y columnas, capacidad, restricciones.
+3. `python run_all.py` y leer `outputs/perfil_datos.md` antes que nada.
+4. Correr el paso 7 (entrega) apenas exista un primer modelo, y repetirlo con cada mejora.
 
 ## Los pasos
 
-| Paso | Script | Qué produce | Herramienta y por qué |
-|---|---|---|---|
-| 0 | `s00_generar_datos.py` | 4 bases sintéticas para practicar | numpy: simula red de pagos, contagio y una trampa de fuga |
-| 1 | `s01_ingesta.py` | Parquet normalizado + `perfil_datos.md` | DuckDB: lee CSV grandes sin cargarlos en memoria; normaliza nombres y fechas |
-| 2 | `s02_features.py` | `tabla_modelo.parquet` (una fila por empresa y corte) | SQL en DuckDB: agrega millones de filas; variables solo con datos antes del corte |
-| 3 | `s03_modelo.py` | Gini, R², `scores.parquet`, `reporte_modelo.md` | Logística (baseline) vs LightGBM, validación out-of-time, alarma de fuga, razones por empresa |
-| 4 | `s04_priorizar.py` | `lista_priorizada.csv`, `resumen_negocio.md` | Valor esperado, curva de ganancia, criterio de habilitar, comparación con leads actuales |
-| 5 | `s05_simulador.py` | `simulador.html` | HTML estático: funciona sin servidor ni internet |
-| — | `benchmark.py` | Tiempos y memoria de pandas vs DuckDB | Para defender la elección con números |
+| Paso | Script | Qué produce |
+|---|---|---|
+| 0 | `s00_generar_datos.py` / `s00b_generar_plana.py` | Datos de práctica (4 bases / tabla ancha con trampas) |
+| 1 | `s01_ingesta.py` | Parquet + `perfil_datos.md` (vacíos, categorías codificadas, extremos, llaves) |
+| 2 | `s02_features.py` | `tabla_modelo.parquet` con partición train/valid y `tabla_scoring.parquet` |
+| 3 | `s03_modelo.py` | Selección de variables, alarma de fuga, logística vs LightGBM + Optuna, brecha máx. 5 pts, monto |
+| 4 | `s04_priorizar.py` | Valor esperado, curva de ganancia, **optimización con restricciones** y su costo, factor de habilitación |
+| 5 | `s05_simulador.py` | `simulador.html` (sin servidor ni internet) |
+| 6 | `s06_hallazgos.py` | `hallazgos.md` + gráficos PNG para el PPT |
+| 7 | `s07_entrega.py` | `outputs/entrega/entrega.csv` validado + copia con hora |
+| — | `benchmark.py` | pandas vs DuckDB en tiempo y memoria |
 
-## Resultados con los datos de práctica (escala 1.0)
+## Pruebas realizadas (laptop virtual de 2 núcleos y 7 GB)
 
-- Gini en validación out-of-time: logística 0.557, LightGBM 0.561 (prácticamente empate; el pipeline elige el ganador solo).
-- R² del monto (escala log): 0.84.
-- Contactando al 10% de la base, la lista por valor esperado capta 75% del monto real en validación; los leads actuales, 27%; el azar, 6%.
-- Ordenar por probabilidad capta más conversiones (40%) pero menos monto (54%): por eso se ordena por valor esperado.
-- Sin las bases de plazo, perfil y canal, el Gini cae a 0.33: así se mide cuánto aporta cada base.
-- Fuga de datos de demostración: si se quita `flag_factoring_actual` de las prohibidas, el Gini salta a 1.000 y la alarma la detecta.
-- Benchmark: DuckDB + Parquet 0.47 s y 175 MB vs pandas + CSV 2.33 s y 579 MB.
+| Prueba | Resultado |
+|---|---|
+| Construir, 20 mil empresas, 2.3 M facturas | 66 s de punta a punta |
+| Construir, 80 mil empresas, 9.4 M facturas | 4 min 14 s, pico de 0.9 GB de RAM |
+| Tabla plana, 200 mil x 194 columnas | 2 min; variable trampa excluida sola; 59 de 190 variables elegidas |
+| Tabla plana, 1.5 M x 194 columnas (CSV de 1.6 GB) | 11 min, pico de 2.7 GB; Gini 0.369 en validación |
+| Gini "ciego" en el test vs validación (200 mil) | 0.356 vs 0.331: estable |
+| Optimización con 3 restricciones | 1.3–7 s, a 0.00% del óptimo teórico; costo por restricción |
+| Columna trampa activada a propósito | Gini 1.00 → la alarma la detecta y la excluye |
 
-## Estructura
+## Guías en docs/ (Copilot las puede leer)
 
-```text
-config.yaml          ← lo único que cambia el día del evento
-run_all.py           ← corre todo; --desde N para retomar
-src/                 ← un script por paso, comentado
-.github/copilot-instructions.md  ← contexto que Copilot lee en cada consulta
-docs/                ← skills y guías en .md para Copilot
-data/raw/            ← datos crudos (no se suben a Git)
-outputs/             ← resultados (no se suben a Git)
-```
+- `chuleta-sql.md`: uniones, agregados, ventanas, deduplicar (para imprimir).
+- `skill-adaptar-caso.md`, `skill-tabla-plana.md`, `skill-optimizacion.md`, `skill-fuga-de-datos.md`.

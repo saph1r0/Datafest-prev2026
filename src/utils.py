@@ -42,6 +42,22 @@ def gini(y_true, score) -> float:
     return 2 * roc_auc_score(y_true, score) - 1
 
 
+def conectar(cfg: dict):
+    """Conexión DuckDB con tope de memoria: lo que no cabe se escribe a disco en vez de colgar la laptop."""
+    import duckdb
+    con = duckdb.connect()
+    r = cfg.get("recursos", {})
+    if r.get("memoria_duckdb"):
+        con.execute(f"SET memory_limit = '{r['memoria_duckdb']}'")
+    if r.get("hilos"):
+        con.execute(f"SET threads = {int(r['hilos'])}")
+    tmp = cfg["rutas"]["parquet"] / "_tmp_duckdb"
+    tmp.mkdir(exist_ok=True)
+    con.execute(f"SET temp_directory = '{tmp}'")
+    con.execute("SET preserve_insertion_order = false")  # menos memoria en COPY grandes
+    return con
+
+
 def parquet(cfg: dict, tabla: str) -> str:
     """Ruta como texto para usar dentro de SQL de DuckDB."""
     return str(cfg["rutas"]["parquet"] / f"{tabla}.parquet")
