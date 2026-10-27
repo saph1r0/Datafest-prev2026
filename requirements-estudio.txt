@@ -1,0 +1,13 @@
+# Librerías para los retos del plan de estudio (además de requirements.txt)
+# Probadas el 26 oct 2026 en Python 3.13
+xgboost==3.4.1
+catboost==1.2.10
+imbalanced-learn==0.14.2   # SMOTE, undersampling
+shap==0.54.1
+pyod==3.6.7                # outliers multivariados (Isolation Forest y otros)
+statsmodels==0.15.0        # ARIMA, SARIMA, ARIMAX; R² ajustado
+pulp==2.9.0                # optimización. OJO: PuLP 4.x cambió toda la interfaz y no trae solver; usen 2.9
+optuna==5.0.0
+matplotlib==3.11.2
+scipy==1.18.1
+# Opcional (necesita Java instalado): pyspark
