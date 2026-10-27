@@ -25,7 +25,15 @@ PASOS = [
 def correr(script, *args):
     r = subprocess.run([sys.executable, script, *args], cwd=RAIZ / "src")
     if r.returncode != 0:
-        sys.exit(f"\nFalló {script}. Arreglen ese paso y retomen con --desde.")
+        detalle = ""
+        if r.returncode < 0:  # el sistema mató el proceso: no hay traceback de Python
+            import signal
+            nombre = signal.Signals(-r.returncode).name
+            detalle = (f"\nEl proceso murió por la señal {nombre} (código {r.returncode}), sin error de Python.\n"
+                       "Causas típicas: SIGSEGV/SIGABRT = choque de librerías nativas (OpenMP/BLAS), muy común\n"
+                       "en Mac con el entorno 'base' de conda; SIGKILL = se quedó sin memoria.\n"
+                       f"Para ver todo el detalle: cd src && python {script}")
+        sys.exit(f"\nFalló {script} (código {r.returncode}).{detalle}\nArreglen ese paso y retomen con --desde.")
 
 
 if __name__ == "__main__":
